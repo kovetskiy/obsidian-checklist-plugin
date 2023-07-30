@@ -1,33 +1,34 @@
-import {ItemView, WorkspaceLeaf} from 'obsidian'
+import { ItemView, WorkspaceLeaf } from "obsidian";
 
-import {TODO_VIEW_TYPE} from './constants'
-import App from './svelte/App.svelte'
-import {groupTodos, parseTodos} from './utils'
+import { TODO_VIEW_TYPE } from "./constants";
+import App from "./svelte/App.svelte";
+import { groupTodos, parseTodos, sortGroups } from "./utils";
 
-import type { TodoSettings } from "./settings"
-import type TodoPlugin from "./main"
-import type { TodoGroup, TodoItem } from "./_types"
+import type { TodoSettings } from "./settings";
+import type TodoPlugin from "./main";
+import type { TodoGroup, TodoItem } from "./_types";
+import { classifyString } from "src/utils/helpers";
 export default class TodoListView extends ItemView {
-  private _app: App
-  private lastRerender = 0
-  private groupedItems: TodoGroup[] = []
-  private itemsByFile = new Map<string, TodoItem[]>()
-  private searchTerm = ""
+  private _app: App;
+  private lastRerender = 0;
+  private groupedItems: TodoGroup[] = [];
+  private itemsByFile = new Map<string, TodoItem[]>();
+  private searchTerm = "";
 
   constructor(leaf: WorkspaceLeaf, private plugin: TodoPlugin) {
-    super(leaf)
+    super(leaf);
   }
 
   getViewType(): string {
-    return TODO_VIEW_TYPE
+    return TODO_VIEW_TYPE;
   }
 
   getDisplayText(): string {
-    return "Todo List"
+    return "Todo List";
   }
 
   getIcon(): string {
-    return "checkmark"
+    return "checkmark";
   }
 
   get todoTagArray() {
@@ -36,51 +37,55 @@ export default class TodoListView extends ItemView {
       .trim()
       .split("\n")
       .map((e) => e.toLowerCase())
-      .filter((e) => e)
+      .filter((e) => e);
   }
 
   get visibleTodoTagArray() {
-    return this.todoTagArray.filter((t) => !this.plugin.getSettingValue("_hiddenTags").includes(t))
+    return this.todoTagArray.filter(
+      (t) => !this.plugin.getSettingValue("_hiddenTags").includes(t)
+    );
   }
 
   async onClose() {
-    this._app.$destroy()
+    this._app.$destroy();
   }
 
   async onOpen(): Promise<void> {
     this._app = new App({
       target: (this as any).contentEl,
       props: this.props(),
-    })
+    });
     this.registerEvent(
       this.app.metadataCache.on("resolved", async () => {
-        if (!this.plugin.getSettingValue("autoRefresh")) return
-        await this.refresh()
+        if (!this.plugin.getSettingValue("autoRefresh")) return;
+        await this.refresh();
       })
-    )
-    this.registerEvent(this.app.vault.on("delete", (file) => this.deleteFile(file.path)))
-    this.refresh()
+    );
+    this.registerEvent(
+      this.app.vault.on("delete", (file) => this.deleteFile(file.path))
+    );
+    this.refresh();
   }
 
   async refresh(all = false) {
     if (all) {
-      this.lastRerender = 0
-      this.itemsByFile.clear()
+      this.lastRerender = 0;
+      this.itemsByFile.clear();
     }
-    await this.calculateAllItems()
-    this.groupItems()
-    this.renderView()
-    this.lastRerender = +new Date()
+    await this.calculateAllItems();
+    this.groupItems();
+    this.renderView();
+    this.lastRerender = +new Date();
   }
 
   rerender() {
-    this.renderView()
+    this.renderView();
   }
 
   private deleteFile(path: string) {
-    this.itemsByFile.delete(path)
-    this.groupItems()
-    this.renderView()
+    this.itemsByFile.delete(path);
+    this.groupItems();
+    this.renderView();
   }
 
   private props() {
@@ -92,12 +97,13 @@ export default class TodoListView extends ItemView {
       _hiddenTags: this.plugin.getSettingValue("_hiddenTags"),
       app: this.app,
       todoGroups: this.groupedItems,
-      updateSetting: (updates: Partial<TodoSettings>) => this.plugin.updateSettings(updates),
+      updateSetting: (updates: Partial<TodoSettings>) =>
+        this.plugin.updateSettings(updates),
       onSearch: (val: string) => {
-        this.searchTerm = val
-        this.refresh()
+        this.searchTerm = val;
+        this.refresh();
       },
-    }
+    };
   }
 
   private async calculateAllItems() {
@@ -110,26 +116,52 @@ export default class TodoListView extends ItemView {
       this.plugin.getSettingValue("showChecked"),
       this.plugin.getSettingValue("showAllTodos"),
       this.lastRerender
-    )
+    );
     for (const [file, todos] of todosForUpdatedFiles) {
-      this.itemsByFile.set(file.path, todos)
+      this.itemsByFile.set(file.path, todos);
     }
   }
 
   private groupItems() {
-    const flattenedItems = Array.from(this.itemsByFile.values()).flat()
-    const searchedItems = flattenedItems.filter((e) => e.originalText.toLowerCase().includes(this.searchTerm.toLowerCase()))
+    const flattenedItems = Array.from(this.itemsByFile.values()).flat();
+    const searchedItems = flattenedItems.filter((e) =>
+      e.originalText.toLowerCase().includes(this.searchTerm.toLowerCase())
+    );
     this.groupedItems = groupTodos(
       searchedItems,
-      this.plugin.getSettingValue("groupBy"),
+      this.plugin.getSettingValue("groupBy")
+    );
+
+    if (this.plugin.getSettingValue("showEmpty")) {
+      for (const tag of this.todoTagArray) {
+        const tagKey = "#" + tag;
+        if (!this.groupedItems.find((e) => e.id === tagKey)) {
+          this.groupedItems.push({
+            id: tagKey,
+            type: "tag",
+            mainTag: tag,
+            sortName: tag,
+            className: classifyString(tag),
+            oldestItem: Infinity,
+            newestItem: 0,
+            todos: [],
+          });
+        }
+      }
+    } else {
+      this.groupedItems = this.groupedItems.filter(
+        (e) => e.todos.length > 0
+      ) as TodoGroup[];
+    }
+
+    sortGroups(
+      this.groupedItems,
       this.plugin.getSettingValue("sortDirectionGroups"),
-      this.plugin.getSettingValue("sortDirectionItems"),
-      this.plugin.getSettingValue("subGroups"),
-      this.plugin.getSettingValue("sortDirectionSubGroups")
-    )
+      this.plugin.getSettingValue("sortDirectionItems")
+    );
   }
 
   private renderView() {
-    this._app.$set(this.props())
+    this._app.$set(this.props());
   }
 }
