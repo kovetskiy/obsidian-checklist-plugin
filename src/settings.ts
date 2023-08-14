@@ -62,14 +62,16 @@ export class TodoSettingTab extends PluginSettingTab {
       .setDesc(
         'e.g. "todo" will match #todo. You may add mutliple tags separated by a newline. Leave empty to capture all'
       )
-      .addTextArea((text) =>
+      .addTextArea((text) => {
         text
           .setPlaceholder("todo")
           .setValue(this.plugin.getSettingValue("todoPageName"))
           .onChange(async (value) => {
             await this.plugin.updateSettings({ todoPageName: value });
-          })
-      );
+          });
+        text.inputEl.rows = 10;
+        text.inputEl.cols = 25;
+      });
 
     new Setting(this.containerEl).setName("Show Empty?").addToggle((toggle) => {
       toggle.setValue(this.plugin.getSettingValue("showEmpty"));
